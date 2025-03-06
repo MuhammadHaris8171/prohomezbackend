@@ -548,25 +548,39 @@ export const getOrdersByVendor = async (req, res) => {
     let query;
     if(isAdmin == 1){
         query = `
-            SELECT order_id, client_details, cart_items, total_cost, order_date, vendor_details
-            FROM orders
-            ORDER BY order_date DESC
+            SELECT 
+    order_id, 
+    JSON_UNQUOTE(client_details) AS client_details_raw, 
+    JSON_UNQUOTE(cart_items) AS cart_items_raw,  
+    total_cost, 
+    order_date, 
+    JSON_UNQUOTE(vendor_details) AS vendor_details_raw
+FROM orders
+ORDER BY order_date DESC;
+
         `;
     } else{
         query = `
-            SELECT order_id, client_details, cart_items, total_cost, order_date, vendor_details
+            SELECT order_id, 
+            JSON_UNQUOTE(client_details) AS client_details_raw, 
+            JSON_UNQUOTE(cart_items) AS cart_items_raw,   
+            total_cost, order_date, 
+            JSON_UNQUOTE(vendor_details) AS vendor_details_raw
             FROM orders
             WHERE JSON_CONTAINS(vendor_details, JSON_OBJECT('store_id', ?))
             ORDER BY order_date DESC
         `;
     }
-
-      const orders = await executeQuery(query, [store_id]);
-      if (orders.length === 0) {
-          return res.status(404).json({ message: "No orders found for this vendor" });
-      }
-
-      res.status(200).json(orders);
+    const orders = await executeQuery(query, [store_id]);
+    const parsedOrders = orders.map(order => ({
+        ...order,
+        client_details: JSON.parse(order.client_details_raw || '{}'),
+        cart_items: JSON.parse(order.cart_items_raw || '[]'),
+        vendor_details: JSON.parse(order.vendor_details_raw || '{}'),
+    }));
+    
+    res.status(200).json(parsedOrders);
+    
   } catch (error) {
       console.error("Error fetching vendor orders:", error);
       res.status(500).json({ message: "Failed to fetch orders" });
@@ -1010,7 +1024,9 @@ export const updateVendorProfile2 = async (req, res) => {
             country: "country",
             postcode: "postcode",
             password: "password",
+            description: "description",  // Add this line
         };
+        
 
         const validColumns = Object.values(fieldMapping);
         const updateFields = {};
@@ -1060,17 +1076,18 @@ export const updateVendorProfile2 = async (req, res) => {
         }
 
         // Check which fields changed before updating
-        for (const [key, value] of Object.entries(updateFields)) {
-            if (key !== "password") {
-                const existingValue = String(existingVendor[0][key] || "");
-                const newValue = String(value || "");
+        // Include description in updates
+for (const [key, value] of Object.entries(updateFields)) {
+    if (key !== "password") {
+        const existingValue = String(existingVendor[0][key] || "");
+        const newValue = String(value || "");
 
-                if (existingValue !== newValue) {
-                    updates.push(`${key} = ?`);
-                    values.push(value);
-                }
-            }
+        if (existingValue !== newValue) {
+            updates.push(`${key} = ?`);
+            values.push(value);
         }
+    }
+}
 
         if (updates.length === 0) {
             return res.status(400).json({
@@ -1119,8 +1136,9 @@ export const updateVendorProfile2 = async (req, res) => {
                 state_county: updatedVendor[0].state_county,
                 country: updatedVendor[0].country,
                 postcode: updatedVendor[0].postcode,
+                description: updatedVendor[0].description, // Add this line
             },
-        });
+        });        
     } catch (error) {
         console.error("Error updating vendor profile:", error);
         res.status(500).json({
