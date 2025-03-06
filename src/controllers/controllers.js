@@ -3,6 +3,8 @@ import { dbQuery, executeQuery } from '../reuseable/functions.js';
 import { orderValidationSchema, validateProduct } from '../validations/validation.js';
 import slugify from 'slugify';
 import bcrypt from 'bcryptjs';
+import nodemailer from "nodemailer";
+
 
 // Store Images
 export const uploadImages = async (req, res) => {
@@ -413,9 +415,9 @@ export const checkoutOrder = async (req, res) => {
       // Validate product slugs and fetch corresponding vendor details
       const slugs = cartItems.map((item) => item.slug);
       const slugQuery = `
-          SELECT slug, productName, store_id, store_name 
+          SELECT slug, productName, store_id, store_name, v.email 
           FROM products p
-          JOIN vendors v ON store_id = store_id
+          JOIN vendors v ON store_id = v.store_id
           WHERE slug IN (?)
       `;
       const productRows = await executeQuery(slugQuery, [slugs]);
@@ -423,7 +425,7 @@ export const checkoutOrder = async (req, res) => {
       const existingSlugs = new Map(
           productRows.map((row) => [
               row.slug,
-              { productName: row.productName, store_id: row.store_id, store_name: row.store_name },
+              { productName: row.productName, store_id: row.store_id, store_name: row.store_name,email:row.email },
           ])
       );
 
@@ -440,8 +442,10 @@ export const checkoutOrder = async (req, res) => {
               store_id: productData.store_id,
               store_name: productData.store_name,
               productName: productData.productName,
+              VendorEmail:productData.email
           });
       }
+    //   console.log(productData);
       // Generate a unique order ID
       const orderId = generateOrderId();
       // Save the order in the database
@@ -457,7 +461,80 @@ export const checkoutOrder = async (req, res) => {
           JSON.stringify(vendorDetails),
       ]);
 
-      res.status(201).json({ message: "Order placed successfully!", orderId });
+
+      console.log(vendorDetails);
+
+      // Send Email to Customer
+      const transporter = nodemailer.createTransport({
+        host: 'smtp.prohomez.com', // Replace with your SMTP server
+        port: 465, // Use 587 for TLS
+        secure: true, // Use false for TLS
+        auth: {
+            user: process.env.EMAIL_USER, 
+            pass: process.env.EMAIL_PASS, 
+        },
+    });
+    console.log(cartItems);
+    const userMailOptions = {
+        from: process.env.EMAIL_USER,
+        to: clientDetails.email,
+        subject: "Order Confirmation - Your Order has been placed",
+        html: `
+            <h2>Thank you for your order, ${clientDetails.name}!</h2>
+            <p>Your order ID: <strong>${orderId}</strong></p>
+            <p>Total Amount: <strong>$${totalCost}</strong></p>
+            <h3>Order Details:</h3>
+            <table border="1" cellspacing="0" cellpadding="10">
+                <thead>
+                    <tr>
+                        <th>Product Name</th>
+                        <th>Original Price</th>
+                        <th>Discounted Price</th>
+                        <th>Quantity</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${cartItems
+                        .map(
+                            (item) => `
+                            <tr>
+                                <td>${item.productName}</td>
+                                <td>$${item.productPrice}</td>
+                                <td>$${item.discountedPrice}</td>
+                                <td>${item.quantity}</td>
+                            </tr>
+                        `
+                        )
+                        .join("")}
+                </tbody>
+            </table>
+            <p>We will notify you when your order is shipped.</p>
+        `,
+    };
+    
+    await transporter.sendMail(userMailOptions);
+
+
+    // Send Email to Vendors
+    for (const vendor of vendorDetails) {
+
+        const vendorMailOptions = {
+            from: process.env.EMAIL_USER,
+            to: vendor.VendorEmail,
+            subject: "New Order Received",
+            html: `
+                <h2>New Order Received</h2>
+                <p>Store: <strong>${vendor.store_name}</strong></p>
+                <p>Product: <strong>${vendor.productName}</strong></p>
+                <p>Customer: <strong>${clientDetails.name}</strong></p>
+                <p>Address: ${clientDetails.address}, ${clientDetails.city}, ${clientDetails.country}</p>
+                <p>Please process the order as soon as possible.</p>
+            `,
+        };
+
+        await transporter.sendMail(vendorMailOptions);
+    }
+      res.status(201).json({ message: "Order placed successfully!", orderResult });
   } catch (error) {
       console.error("Error saving order:", error);
       res.status(500).json({ message: "Failed to place order" });

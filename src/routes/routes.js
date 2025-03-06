@@ -3,6 +3,7 @@ import multer from 'multer';
 import path from 'path';
 import { uploadImages, getAllImages, createProduct, getProducts,getProductImages,getProdcutsByMainCategory,getProductsByCategory, getVendor,getVendorProfile, updateVendorProfile, updateVendor, fetchVendorProducts, updateProduct, deleteProduct, getProductBySlug, fetchVendorDetails, checkoutOrder, getOrdersByVendor, fetchAllVendors, updateVendorAccess,fetchAllVendorsPublic, fetchVendorProductsByStoreId, updateVendorProfile2, fetchAllVendorsPublic2, fetchAllVendors2, fetchVendorDetails2 } from '../controllers/controllers.js';
 import { authenticate } from '../middleware/authmiddleware.js';
+import nodemailer from "nodemailer";
 
 const router = express.Router();
 
